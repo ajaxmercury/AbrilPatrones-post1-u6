@@ -97,3 +97,87 @@ STOCK_INSUFICIENTE             | false        | Stock insuficiente: producto 104
 ```
 
 *Nota sobre la hora de corte:* La prueba se ejecutó a las 14:39 (hora local del sistema), la cual es anterior al horario de corte de las 20:00 (`LocalTime.now().isBefore(LocalTime.of(20, 0))` evaluó a `true`), confirmando el rechazo del cliente moroso.
+
+---
+
+## 4. PARTE 1 — Refactorización y Decisiones de Diseño
+
+### 4.1. Arquitectura Refactorizada en Cuatro Capas
+
+Se desmanteló el *God Object* y se eliminó el *Spaghetti Code*, redistribuyendo las responsabilidades en cuatro capas claramente delimitadas:
+1. **Capa de Validación (`validacion/`):**
+   - `ContextoPedido`: Objeto de transferencia contextual mutable que transporta la solicitud y datos acumulados (cliente, NIT, pedidos previos).
+   - `ValidadorPedido`: Clase base abstracta que define el método plantilla `validar()` con corte anticipado (*fail-fast*).
+   - `ValidadorStock`: Primer eslabón. Verifica existencias en inventario; rechaza si no hay stock o si el producto no existe.
+   - `ValidadorCliente`: Segundo eslabón. Valida existencia del cliente, carga de historial previo y política de corte horario (mora antes de 20:00) empleando un bean `Clock`.
+2. **Capa de Cálculo y Beneficios (`descuento/` y `service/`):**
+   - `CalculadorSubtotal`: Componente especializado que extrae los precios vigentes de la base de datos y totaliza el subtotal, liberando a `GestorPedidos` de interactuar con SQL.
+   - `EstrategiaDescuento`: Interfaz Strategy con el contrato `calcularPorcentaje(ContextoPedido, double)`.
+   - `DescuentoVip`, `DescuentoFrecuente`, `DescuentoEstandar`: Implementaciones concretas e independientes.
+   - `SelectorEstrategiaDescuento`: Resuelve la estrategia mediante un mapa polimórfico, asignando por defecto la estrategia estándar.
+3. **Capa de Persistencia (`service/`):**
+   - `PedidoRepository`: Componente `@Repository` que encapsula la inserción transaccional de pedidos, detalles de pedido y decremento de existencias de inventario, utilizando `GeneratedKeyHolder` y `Statement.RETURN_GENERATED_KEYS`.
+4. **Capa de Notificación (`service/`):**
+   - `NotificacionPedidoService`: Encapsula la construcción del mensaje y el despacho a través de `EmailService`.
+
+`GestorPedidos` quedó reducido a un **orquestador delgado de 85 líneas**, con inyección exclusiva por constructor y sin código muerto.
+
+### 4.2. Decisiones de Diseño Justificadas
+
+#### A. Chain of Responsibility para Validaciones frente a `List<Predicate>` (Alternativa Descartada)
+- **Decisión:** Se implementó una **Cadena de Responsabilidad (Chain of Responsibility)** con método plantilla y corte anticipado (*short-circuiting*).
+- **Justificación:** Existe una **dependencia real de orden**: primero se comprueba la disponibilidad física de stock en inventario (`ValidadorStock`). Si el inventario no cuenta con existencias, la validación se detiene de inmediato y **no se consulta la solvencia crediticia ni las facturas del cliente en la base de datos**. Esto optimiza el consumo de I/O y conexiones JDBC.
+- **Alternativa descartada:** Utilizar una lista de predicados (`List<Predicate<ContextoPedido>>`) o evaluar todos los filtros en bucle. Esta opción fue descartada porque un predicado tradicional únicamente evalúa verdadero o falso, careciendo de un mecanismo estructurado para enriquecer el resultado con el motivo exacto del rechazo (`ResultadoPedido.rechazado(...)`). Además, evaluar toda la lista sin corte forzaría consultas innecesarias de facturación cuando el producto ni siquiera está disponible.
+
+#### B. Strategy para Descuentos frente a Eslabón de la Cadena (Alternativa Descartada)
+- **Decisión:** Se utilizó el patrón **Strategy** con un selector polimórfico (`SelectorEstrategiaDescuento`).
+- **Justificación:** Los descuentos por tipo de cliente son **mutuamente excluyentes** (se aplica exactamente una regla: o es VIP, o es FRECUENTE, o es ESTÁNDAR) y no poseen ninguna dependencia secuencial de orden.
+- **Por qué NO debe ser un eslabón de la cadena:** La cadena de validación tiene el contrato semántico de **aprobar o rechazar** la viabilidad de un pedido con corte anticipado. Las reglas de descuento no rechazan pedidos; calculan un factor multiplicador numérico para deducir sobre la base imponible. Convertir los descuentos en eslabones corrompería el contrato de `ValidadorPedido`, introduciría efectos colaterales mutables y convertiría la cadena en un *Golden Hammer*.
+
+### 4.3. Comparación de Salida Antes y Después (Verificación de Equivalencia)
+
+A continuación se muestra la salida de las 5 pruebas de regresión tras la refactorización (`docs/salida-refactorizada.txt`):
+
+```text
+CASO                           | CONFIRMADO   | MOTIVO                                        | TOTAL       
+---------------------------------------------------------------------------------------------------------
+CLIENTE_INEXISTENTE            | false        | Cliente no registrado                         | 0.00        
+CLIENTE_MOROSO_HORA_REAL       | false        | Cliente con facturas pendientes               | 0.00        
+DESCUENTO_FRECUENTE            | true         | N/A                                           | 437920.00   
+DESCUENTO_VIP                  | true         | N/A                                           | 1213800.00  
+STOCK_INSUFICIENTE             | false        | Stock insuficiente: producto 104              | 0.00        
+```
+
+#### Diff entre Salida Original y Refactorizada:
+```diff
+--- docs/salida-original.txt
++++ docs/salida-refactorizada.txt
+@@ -1,6 +1,6 @@
+ CASO                           | CONFIRMADO   | MOTIVO                                        | TOTAL       
+ ---------------------------------------------------------------------------------------------------------
+-CLIENTE_INEXISTENTE            | false        | EmptyResultDataAccessException                | 0.00        
++CLIENTE_INEXISTENTE            | false        | Cliente no registrado                         | 0.00        
+ CLIENTE_MOROSO_HORA_REAL       | false        | Cliente con facturas pendientes               | 0.00        
+ DESCUENTO_FRECUENTE            | true         | N/A                                           | 437920.00   
+ DESCUENTO_VIP                  | true         | N/A                                           | 1213800.00  
+```
+
+**Análisis de la discrepancia intencional:**
+La única diferencia entre ambas salidas es el motivo del caso `CLIENTE_INEXISTENTE`:
+- En la línea base original, `jdbcTemplate.queryForObject(...)` lanzaba `EmptyResultDataAccessException` de forma descontrolada cuando el ID no existía en la tabla `clientes`.
+- En el código refactorizado, `ValidadorCliente` realiza una consulta segura devolviendo una lista vacía y emite un `ResultadoPedido.rechazado("Cliente no registrado")`.
+- En todos los demás casos (`STOCK_INSUFICIENTE`, `CLIENTE_MOROSO_HORA_REAL`, `DESCUENTO_FRECUENTE`, `DESCUENTO_VIP`), los estados de confirmación, los motivos y los **totales calculados son rigurosamente idénticos al céntimo**.
+
+---
+
+## 5. Notas Técnicas de la Parte 1
+
+1. **Corrección del bug de cableado de la guía:** En la guía didáctica se sugería `this.primerValidador = stock.encadenar(cliente);`. Dado que el método `encadenar()` devuelve el *siguiente* eslabón de la cadena para permitir encadenamiento fluido, esa asignación causaba que `this.primerValidador` apuntara a `ValidadorCliente`, omitiendo silenciosamente `ValidadorStock`. La corrección implementada en `GestorPedidos` preserva la referencia al primer elemento:
+   ```java
+   validadorStock.encadenar(validadorCliente);
+   this.primerValidador = validadorStock;
+   ```
+2. **Sustitución de `CALL IDENTITY()` por `GeneratedKeyHolder`:** La instrucción `CALL IDENTITY()` es propietaria y obsoleta en H2 2.x, requiriendo `;MODE=LEGACY`. En `PedidoRepository` se implementó `GeneratedKeyHolder` con `Statement.RETURN_GENERATED_KEYS`, permitiendo retirar `;MODE=LEGACY` y trabajar en modo estándar ANSI SQL.
+3. **Inyección de `java.time.Clock`:** `ValidadorCliente` recibe un bean `Clock` inyectado por Spring Boot (`Clock.systemDefaultZone()`), lo cual permitió escribir pruebas unitarias deterministas con relojes fijos (`Clock.fixed(...)`) para validar tanto el rechazo antes de las 20:00 como la aprobación posterior al horario de corte.
+4. **Desacoplamiento de SQL mediante `CalculadorSubtotal`:** Para que `GestorPedidos` no requiriera `JdbcTemplate` para consultar los precios vigentes de los productos, se encapsuló dicha responsabilidad en el componente `CalculadorSubtotal`.
+

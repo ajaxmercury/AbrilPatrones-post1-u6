@@ -22,6 +22,12 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 
+import com.tienda.pedidos.validacion.ContextoPedido;
+import com.tienda.pedidos.validacion.ValidadorCliente;
+import org.springframework.jdbc.core.JdbcTemplate;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.Clock;
 import static org.junit.jupiter.api.Assertions.*;
 
 @SpringBootTest
@@ -29,6 +35,9 @@ public class GestorPedidosTest {
 
     @Autowired
     private GestorPedidos gestorPedidos;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     private static final List<String> filasSalida = Collections.synchronizedList(new ArrayList<>());
 
@@ -167,5 +176,29 @@ public class GestorPedidosTest {
         assertEquals(437920.0, resultado.getTotal(), 0.01);
 
         registrarResultado("DESCUENTO_FRECUENTE", resultado.isConfirmado(), "N/A", resultado.getTotal());
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("Caso Auxiliar Clock: Moroso antes de las 20:00 con Clock fijo es rechazado")
+    void testMorosoAntesDeCorteConRelojFijo() {
+        Clock fixedClockBefore = Clock.fixed(Instant.parse("2026-10-04T14:00:00Z"), ZoneId.of("UTC"));
+        ValidadorCliente validador = new ValidadorCliente(jdbcTemplate, fixedClockBefore);
+        ContextoPedido ctx = new ContextoPedido(new PedidoRequest(5L, "moroso@tienda.com", List.of(new ItemPedido(101L, 1))));
+        ResultadoPedido res = validador.validar(ctx);
+        assertNotNull(res);
+        assertFalse(res.isConfirmado());
+        assertEquals("Cliente con facturas pendientes", res.getMotivo());
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("Caso Auxiliar Clock: Moroso despues de las 20:00 con Clock fijo es aprobado")
+    void testMorosoDespuesDeCorteConRelojFijo() {
+        Clock fixedClockAfter = Clock.fixed(Instant.parse("2026-10-04T21:00:00Z"), ZoneId.of("UTC"));
+        ValidadorCliente validador = new ValidadorCliente(jdbcTemplate, fixedClockAfter);
+        ContextoPedido ctx = new ContextoPedido(new PedidoRequest(5L, "moroso@tienda.com", List.of(new ItemPedido(101L, 1))));
+        ResultadoPedido res = validador.validar(ctx);
+        assertNull(res); // Cadena superada sin rechazo
     }
 }
