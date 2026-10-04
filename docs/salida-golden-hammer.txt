@@ -1,0 +1,10 @@
+CASO                           | CONFIRMADO   | MOTIVO                                        | TOTAL       
+---------------------------------------------------------------------------------------------------------
+CAMPANA_BLACK_FRIDAY           | true         | N/A                                           | 178500.00   
+CAMPANA_CORPORATIVO_NIT        | true         | N/A                                           | 214200.00   
+CAMPANA_VOLUMEN_MAYOR_20       | true         | N/A                                           | 1309000.00  
+CLIENTE_INEXISTENTE            | false        | Cliente no registrado                         | 0.00        
+CLIENTE_MOROSO_HORA_REAL       | false        | Cliente con facturas pendientes               | 0.00        
+DESCUENTO_FRECUENTE            | true         | N/A                                           | 437920.00   
+DESCUENTO_VIP                  | true         | N/A                                           | 1213800.00  
+STOCK_INSUFICIENTE             | false        | Stock insuficiente: producto 104              | 0.00        

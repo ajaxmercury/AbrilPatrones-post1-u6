@@ -4,8 +4,10 @@ import com.tienda.pedidos.dto.ItemPedido;
 import com.tienda.pedidos.dto.PedidoRequest;
 import com.tienda.pedidos.dto.ResultadoPedido;
 import com.tienda.pedidos.service.GestorPedidos;
+import com.tienda.pedidos.service.ControlBlackFriday;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -39,11 +41,21 @@ public class GestorPedidosTest {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    @Autowired
+    private ControlBlackFriday controlBlackFriday;
+
     private static final List<String> filasSalida = Collections.synchronizedList(new ArrayList<>());
 
     @BeforeAll
-    static void setUp() {
+    static void setUpAll() {
         filasSalida.clear();
+    }
+
+    @BeforeEach
+    void setUpEach() {
+        if (controlBlackFriday != null) {
+            controlBlackFriday.setActiva(false);
+        }
     }
 
     @AfterAll
@@ -200,5 +212,62 @@ public class GestorPedidosTest {
         ContextoPedido ctx = new ContextoPedido(new PedidoRequest(5L, "moroso@tienda.com", List.of(new ItemPedido(101L, 1))));
         ResultadoPedido res = validador.validar(ctx);
         assertNull(res); // Cadena superada sin rechazo
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("Caso 6 Campana: Black Friday activa (25% descuento)")
+    void testCampanaBlackFriday() {
+        controlBlackFriday.setActiva(true);
+        // Cliente 1 (ESTANDAR). 1 unidad de producto 101 ($200,000).
+        // Subtotal = 200,000. Descuento 25% = 50,000. Base = 150,000. IVA 19% = 28,500. Total = 178,500.
+        PedidoRequest request = new PedidoRequest(1L, "cliente1@tienda.com",
+                List.of(new ItemPedido(101L, 1)));
+
+        ResultadoPedido resultado = gestorPedidos.procesarPedido(request);
+
+        assertNotNull(resultado);
+        assertTrue(resultado.isConfirmado());
+        assertEquals(178500.0, resultado.getTotal(), 0.01);
+
+        registrarResultado("CAMPANA_BLACK_FRIDAY", resultado.isConfirmado(), "N/A", resultado.getTotal());
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("Caso 7 Campana: Cliente Corporativo con NIT (10% descuento)")
+    void testCampanaCorporativo() {
+        controlBlackFriday.setActiva(false);
+        // Cliente 6 (con NIT '900123456-1'). 1 unidad de producto 101 ($200,000).
+        // Subtotal = 200,000. Descuento 10% = 20,000. Base = 180,000. IVA 19% = 34,200. Total = 214,200.
+        PedidoRequest request = new PedidoRequest(6L, "corporativo@tienda.com",
+                List.of(new ItemPedido(101L, 1)));
+
+        ResultadoPedido resultado = gestorPedidos.procesarPedido(request);
+
+        assertNotNull(resultado);
+        assertTrue(resultado.isConfirmado());
+        assertEquals(214200.0, resultado.getTotal(), 0.01);
+
+        registrarResultado("CAMPANA_CORPORATIVO_NIT", resultado.isConfirmado(), "N/A", resultado.getTotal());
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("Caso 8 Campana: Descuento por volumen mayor a 20 unidades (12% descuento)")
+    void testCampanaVolumen() {
+        controlBlackFriday.setActiva(false);
+        // Cliente 1 (ESTANDAR). 25 unidades de producto 105 ($50,000).
+        // Subtotal = 1,250,000. Descuento 12% = 150,000. Base = 1,100,000. IVA 19% = 209,000. Total = 1,309,000.
+        PedidoRequest request = new PedidoRequest(1L, "mayorista@tienda.com",
+                List.of(new ItemPedido(105L, 25)));
+
+        ResultadoPedido resultado = gestorPedidos.procesarPedido(request);
+
+        assertNotNull(resultado);
+        assertTrue(resultado.isConfirmado());
+        assertEquals(1309000.0, resultado.getTotal(), 0.01);
+
+        registrarResultado("CAMPANA_VOLUMEN_MAYOR_20", resultado.isConfirmado(), "N/A", resultado.getTotal());
     }
 }

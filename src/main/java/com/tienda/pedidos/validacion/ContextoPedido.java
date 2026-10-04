@@ -44,4 +44,14 @@ public class ContextoPedido {
     public void setPedidosPrevios(int pedidosPrevios) {
         this.pedidosPrevios = pedidosPrevios;
     }
+
+    private double descuentoCampana = 0.0;
+
+    public void aplicarDescuentoCampana(double descuento) {
+        this.descuentoCampana = Math.max(this.descuentoCampana, descuento);
+    }
+
+    public double getDescuentoCampana() {
+        return descuentoCampana;
+    }
 }

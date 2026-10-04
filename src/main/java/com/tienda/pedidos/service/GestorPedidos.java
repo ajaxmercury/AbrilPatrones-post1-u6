@@ -5,6 +5,9 @@ import com.tienda.pedidos.descuento.SelectorEstrategiaDescuento;
 import com.tienda.pedidos.dto.PedidoRequest;
 import com.tienda.pedidos.dto.ResultadoPedido;
 import com.tienda.pedidos.validacion.ContextoPedido;
+import com.tienda.pedidos.validacion.PromocionBlackFriday;
+import com.tienda.pedidos.validacion.PromocionCorporativo;
+import com.tienda.pedidos.validacion.PromocionVolumen;
 import com.tienda.pedidos.validacion.ValidadorCliente;
 import com.tienda.pedidos.validacion.ValidadorPedido;
 import com.tienda.pedidos.validacion.ValidadorStock;
@@ -13,11 +16,9 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 /**
- * GestorPedidos refactorizado — Orquestador delgado de las cuatro capas de la aplicacion:
- * 1. Capa de Validacion (Chain of Responsibility con corte anticipado).
- * 2. Capa de Calculo y Beneficios Comerciales (Strategy Pattern para descuentos).
- * 3. Capa de Persistencia (Repository Pattern para aislamiento relacional).
- * 4. Capa de Notificacion (Servicio de mensajeria y correo electronico).
+ * GestorPedidos con implementacion del antipatron Golden Hammer:
+ * Se reutiliza la Cadena de Responsabilidad para inyectar eslabones de promociones comerciales
+ * que mutan el contexto y compiten por Math.max, violando el contrato de validacion.
  */
 @Service
 public class GestorPedidos {
@@ -32,13 +33,18 @@ public class GestorPedidos {
 
     public GestorPedidos(ValidadorStock validadorStock,
                          ValidadorCliente validadorCliente,
+                         PromocionBlackFriday promoBlackFriday,
+                         PromocionCorporativo promoCorporativo,
+                         PromocionVolumen promoVolumen,
                          CalculadorSubtotal calculadorSubtotal,
                          SelectorEstrategiaDescuento selectorDescuento,
                          PedidoRepository pedidoRepository,
                          NotificacionPedidoService notificacionService) {
-        // Correccion obligatoria del bug de cableado de la guia:
-        // encadenar() devuelve el siguiente eslabon, por lo que se debe preservar la referencia a la cabeza.
-        validadorStock.encadenar(validadorCliente);
+        // Cableado de los 5 eslabones con correccion obligatoria preservando la cabeza
+        validadorStock.encadenar(validadorCliente)
+                      .encadenar(promoBlackFriday)
+                      .encadenar(promoCorporativo)
+                      .encadenar(promoVolumen);
         this.primerValidador = validadorStock;
 
         this.calculadorSubtotal = calculadorSubtotal;
@@ -48,7 +54,8 @@ public class GestorPedidos {
     }
 
     /**
-     * Procesa una solicitud de pedido delegando ordenadamente en los componentes especializados.
+     * Procesa una solicitud de pedido delegando en la cadena con 5 eslabones y resolviendo
+     * el mayor descuento entre el tipo de cliente y el estado mutado por las campanas.
      *
      * @param request Solicitud con cliente y lista de items
      * @return ResultadoPedido confirmado con ID y total, o rechazado con motivo especifico
@@ -56,28 +63,29 @@ public class GestorPedidos {
     public ResultadoPedido procesarPedido(PedidoRequest request) {
         log.info("Orquestando procesamiento de pedido para cliente ID: {}", request.getClienteId());
 
-        // 1. CAPA DE VALIDACION (Chain of Responsibility)
+        // 1. CAPA DE VALIDACION (Y campanas promocionales indebidamente acopladas en la cadena)
         ContextoPedido contexto = new ContextoPedido(request);
         ResultadoPedido falloValidacion = primerValidador.validar(contexto);
         if (falloValidacion != null) {
-            log.warn("Pedido rechazado en la capa de validacion: {}", falloValidacion.getMotivo());
+            log.warn("Pedido rechazado en la cadena de validacion: {}", falloValidacion.getMotivo());
             return falloValidacion;
         }
 
-        // 2. CAPA DE CALCULO FINANCIERO Y DESCUENTOS (Strategy Pattern)
+        // 2. CAPA DE CALCULO FINANCIERO Y DESCUENTOS (Competencia por el maximo)
         CalculadorSubtotal.SubtotalDetalle detalleSubtotal = calculadorSubtotal.calcularSubtotal(request.getItems());
         double subtotal = detalleSubtotal.subtotal();
 
         EstrategiaDescuento estrategia = selectorDescuento.seleccionar(contexto.getTipoCliente());
-        double porcentaje = estrategia.calcularPorcentaje(contexto, subtotal);
-        double descuento = subtotal * porcentaje;
+        double porcentajeTipoCliente = estrategia.calcularPorcentaje(contexto, subtotal);
+        double porcentajeFinal = Math.max(porcentajeTipoCliente, contexto.getDescuentoCampana());
+        double descuento = subtotal * porcentajeFinal;
 
         double baseImponible = subtotal - descuento;
         double impuesto = baseImponible * 0.19; // IVA 19% identico a la formula original
         double total = baseImponible + impuesto;
 
-        log.debug("Subtotal: {}, Descuento: {} ({}%), Base: {}, IVA: {}, Total: {}",
-                subtotal, descuento, (porcentaje * 100), baseImponible, impuesto, total);
+        log.debug("Subtotal: {}, Descuento final: {} ({}%), Base: {}, IVA: {}, Total: {}",
+                subtotal, descuento, (porcentajeFinal * 100), baseImponible, impuesto, total);
 
         // 3. CAPA DE PERSISTENCIA (Repository Pattern con GeneratedKeyHolder)
         Long pedidoId = pedidoRepository.guardarPedido(
