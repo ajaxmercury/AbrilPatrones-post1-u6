@@ -1,0 +1,171 @@
+package com.tienda.pedidos;
+
+import com.tienda.pedidos.dto.ItemPedido;
+import com.tienda.pedidos.dto.PedidoRequest;
+import com.tienda.pedidos.dto.ResultadoPedido;
+import com.tienda.pedidos.service.GestorPedidos;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.io.File;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.io.PrintWriter;
+import java.time.LocalTime;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Locale;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+@SpringBootTest
+public class GestorPedidosTest {
+
+    @Autowired
+    private GestorPedidos gestorPedidos;
+
+    private static final List<String> filasSalida = Collections.synchronizedList(new ArrayList<>());
+
+    @BeforeAll
+    static void setUp() {
+        filasSalida.clear();
+    }
+
+    @AfterAll
+    static void tearDownAll() throws IOException {
+        File targetDir = new File("target");
+        if (!targetDir.exists()) {
+            targetDir.mkdirs();
+        }
+        File salidaFile = new File(targetDir, "salida.txt");
+        Collections.sort(filasSalida);
+        try (PrintWriter writer = new PrintWriter(new FileWriter(salidaFile))) {
+            writer.printf("%-30s | %-12s | %-45s | %-12s%n", "CASO", "CONFIRMADO", "MOTIVO", "TOTAL");
+            writer.println("---------------------------------------------------------------------------------------------------------");
+            for (String fila : filasSalida) {
+                writer.println(fila);
+            }
+        }
+    }
+
+    private void registrarResultado(String caso, boolean confirmado, String motivo, double total) {
+        String motivoLimpio = (motivo == null || motivo.trim().isEmpty()) ? "N/A" : motivo.trim();
+        String fila = String.format(Locale.US, "%-30s | %-12b | %-45s | %-12.2f",
+                caso, confirmado, motivoLimpio, total);
+        filasSalida.add(fila);
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("Caso 1: Stock insuficiente en inventario")
+    void testStockInsuficiente() {
+        // Producto 104 solo tiene stock de 2 unidades; se solicitan 5 unidades
+        PedidoRequest request = new PedidoRequest(1L, "cliente1@tienda.com",
+                List.of(new ItemPedido(104L, 5)));
+
+        ResultadoPedido resultado = gestorPedidos.procesarPedido(request);
+
+        assertNotNull(resultado);
+        assertFalse(resultado.isConfirmado());
+        assertEquals("Stock insuficiente: producto 104", resultado.getMotivo());
+        assertEquals(0.0, resultado.getTotal(), 0.001);
+
+        registrarResultado("STOCK_INSUFICIENTE", resultado.isConfirmado(), resultado.getMotivo(), resultado.getTotal());
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("Caso 2: Cliente no registrado en base de datos")
+    void testClienteInexistente() {
+        // Cliente 999 no existe en data.sql
+        PedidoRequest request = new PedidoRequest(999L, "desconocido@tienda.com",
+                List.of(new ItemPedido(101L, 1)));
+
+        boolean confirmado = false;
+        String motivo = "";
+        double total = 0.0;
+
+        try {
+            ResultadoPedido resultado = gestorPedidos.procesarPedido(request);
+            confirmado = resultado.isConfirmado();
+            motivo = resultado.getMotivo();
+            total = resultado.getTotal();
+        } catch (Exception ex) {
+            // El codigo original lanza EmptyResultDataAccessException al usar queryForObject
+            confirmado = false;
+            motivo = ex.getClass().getSimpleName();
+            total = 0.0;
+        }
+
+        assertFalse(confirmado);
+        registrarResultado("CLIENTE_INEXISTENTE", confirmado, motivo, total);
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("Caso 3: Cliente moroso evaluado con reloj real del sistema")
+    void testClienteMoroso() {
+        // Cliente 5 tiene factura pendiente de 150,000 no pagada
+        PedidoRequest request = new PedidoRequest(5L, "moroso@tienda.com",
+                List.of(new ItemPedido(101L, 1)));
+
+        ResultadoPedido resultado = gestorPedidos.procesarPedido(request);
+        assertNotNull(resultado);
+
+        LocalTime ahora = LocalTime.now();
+        if (ahora.isBefore(LocalTime.of(20, 0))) {
+            // Evaluado antes de las 20:00 -> rechaza por mora
+            assertFalse(resultado.isConfirmado());
+            assertEquals("Cliente con facturas pendientes", resultado.getMotivo());
+            assertEquals(0.0, resultado.getTotal(), 0.001);
+            registrarResultado("CLIENTE_MOROSO_HORA_REAL", resultado.isConfirmado(), resultado.getMotivo(), resultado.getTotal());
+        } else {
+            // Evaluado despues de las 20:00 -> horario de corte cumplido
+            assertTrue(resultado.isConfirmado());
+            registrarResultado("CLIENTE_MOROSO_HORA_REAL", resultado.isConfirmado(), "Aprobado posterior a 20:00", resultado.getTotal());
+        }
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("Caso 4: Cliente VIP con subtotal superior a 1,000,000 (15% descuento)")
+    void testDescuentoVip() {
+        // Cliente 2 (VIP). Producto 103 cuesta 1,200,000.
+        // Subtotal = 1,200,000. Descuento 15% = 180,000. Base = 1,020,000. IVA (19%) = 193,800. Total = 1,213,800.
+        PedidoRequest request = new PedidoRequest(2L, "vip@tienda.com",
+                List.of(new ItemPedido(103L, 1)));
+
+        ResultadoPedido resultado = gestorPedidos.procesarPedido(request);
+
+        assertNotNull(resultado);
+        assertTrue(resultado.isConfirmado());
+        assertEquals(1213800.0, resultado.getTotal(), 0.01);
+
+        registrarResultado("DESCUENTO_VIP", resultado.isConfirmado(), "N/A", resultado.getTotal());
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("Caso 5: Cliente FRECUENTE con mas de 10 pedidos previos (8% descuento)")
+    void testDescuentoFrecuente() {
+        // Cliente 4 (FRECUENTE con 12 pedidos previos en data.sql).
+        // Producto 101 cuesta 200,000 x 2 unidades = 400,000.
+        // Descuento 8% = 32,000. Base = 368,000. IVA (19%) = 69,920. Total = 437,920.
+        PedidoRequest request = new PedidoRequest(4L, "frecuente@tienda.com",
+                List.of(new ItemPedido(101L, 2)));
+
+        ResultadoPedido resultado = gestorPedidos.procesarPedido(request);
+
+        assertNotNull(resultado);
+        assertTrue(resultado.isConfirmado());
+        assertEquals(437920.0, resultado.getTotal(), 0.01);
+
+        registrarResultado("DESCUENTO_FRECUENTE", resultado.isConfirmado(), "N/A", resultado.getTotal());
+    }
+}

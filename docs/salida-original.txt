@@ -1,0 +1,7 @@
+CASO                           | CONFIRMADO   | MOTIVO                                        | TOTAL       
+---------------------------------------------------------------------------------------------------------
+CLIENTE_INEXISTENTE            | false        | EmptyResultDataAccessException                | 0.00        
+CLIENTE_MOROSO_HORA_REAL       | false        | Cliente con facturas pendientes               | 0.00        
+DESCUENTO_FRECUENTE            | true         | N/A                                           | 437920.00   
+DESCUENTO_VIP                  | true         | N/A                                           | 1213800.00  
+STOCK_INSUFICIENTE             | false        | Stock insuficiente: producto 104              | 0.00        
