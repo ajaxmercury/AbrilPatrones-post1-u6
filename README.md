@@ -181,3 +181,70 @@ La única diferencia entre ambas salidas es el motivo del caso `CLIENTE_INEXISTE
 3. **Inyección de `java.time.Clock`:** `ValidadorCliente` recibe un bean `Clock` inyectado por Spring Boot (`Clock.systemDefaultZone()`), lo cual permitió escribir pruebas unitarias deterministas con relojes fijos (`Clock.fixed(...)`) para validar tanto el rechazo antes de las 20:00 como la aprobación posterior al horario de corte.
 4. **Desacoplamiento de SQL mediante `CalculadorSubtotal`:** Para que `GestorPedidos` no requiriera `JdbcTemplate` para consultar los precios vigentes de los productos, se encapsuló dicha responsabilidad en el componente `CalculadorSubtotal`.
 
+---
+
+## 6. PARTE 2 — Crecimiento del Sistema y Diagnóstico de Golden Hammer
+
+Al evolucionar el sistema, surgió el requerimiento comercial de incorporar tres nuevas campañas promocionales:
+1. `PromocionBlackFriday`: 25% de descuento si la propiedad `promo.black-friday.activa` es verdadera.
+2. `PromocionCorporativo`: 10% de descuento si el cliente cuenta con un número de NIT registrado.
+3. `PromocionVolumen`: 12% de descuento si la orden supera las 20 unidades en total.
+
+En lugar de diseñar una solución adecuada a la naturaleza del problema, se forzó la reutilización de la **Cadena de Responsabilidad (Chain of Responsibility)**, convirtiendo las tres promociones en eslabones (`ValidadorPedido`) que compiten actualizando un campo mutable compartido en `ContextoPedido`.
+
+### 6.1. Evidencia Concreta del Antipatrón Golden Hammer
+
+A continuación se documenta la evidencia técnica que demuestra la presencia del antipatrón *Golden Hammer* (Martillo de Oro):
+
+1. **Inexistencia de dependencia de orden entre promociones:**
+   Las tres promociones son ortogonales e independientes. No existe ninguna precondición que exija que Black Friday deba evaluarse antes que la promoción corporativa, ni que ésta deba procesarse antes que la de volumen. Forzarlas en una secuencia lineal (`validadorStock -> validadorCliente -> promoBlackFriday -> promoCorporativo -> promoVolumen`) introduce una jerarquía artificial inexistente en el dominio del negocio.
+2. **Violación flagrante del contrato de `ValidadorPedido`:**
+   El contrato semántico de la clase abstracta `ValidadorPedido` establece que el método `ejecutarValidacion(ContextoPedido)` evalúa condiciones de viabilidad del pedido y, ante una infracción, emite un `ResultadoPedido.rechazado(...)` interrumpiendo la cadena (*fail-fast*). Ninguno de los tres eslabones de promoción rechaza jamás un pedido; los tres retornan incondicionalmente `null`, desvirtuando el propósito de la cadena y empleándola como un simple bucle de efectos colaterales.
+3. **Mutación de estado compartido en `ContextoPedido`:**
+   Los tres eslabones invocan `contexto.aplicarDescuentoCampana(...)`, mutando el campo `descuentoCampana` mediante una competencia de mayor valor (`Math.max`). Esto convierte a `ContextoPedido` en un contenedor de estado mutable compartido susceptible a acoplamiento temporal y dificulta la trazabilidad de cuál promoción determinó el descuento final.
+4. **Elección por inercia y no por diseño:**
+   Se eligió la cadena simplemente porque "ya existía y funcionó para stock y clientes", sin analizar si la estructura de una tubería de corte anticipado coincidía con el modelo matemático de promociones comerciales.
+
+### 6.2. Respuestas a las Cuatro Preguntas Guía con Datos del Código
+
+#### 1. ¿Por qué las promociones no pertenecen conceptualmente a la cadena de validación?
+**Respuesta:** Validar y liquidar beneficios son intenciones de negocio disjuntas. La validación responde a una pregunta booleana estricta: *¿Es admisible este pedido para su procesamiento?* Si falta stock o el cliente está en mora, el pedido se detiene. En contraste, las promociones responden a una cuantificación comercial: *¿Qué deducción tarifaria le corresponde a este pedido válido?* Tratar una promoción como validador rompe la semántica del polimorfismo y confunde el control de flujo con el cálculo tarifario.
+
+#### 2. ¿Qué problemas acarrea la mutación de estado compartido en `ContextoPedido`?
+**Respuesta:** En `ContextoPedido`, el método `aplicarDescuentoCampana(double descuento)` sobreescribe el atributo `descuentoCampana` utilizando `Math.max(this.descuentoCampana, descuento)`. Esto introduce:
+- **Efectos secundarios ocultos:** La invocación de un supuesto "validador" modifica sigilosamente el estado interno del objeto en tránsito.
+- **Acoplamiento temporal:** El resultado depende del orden físico en que los eslabones fueron registrados en el constructor de `GestorPedidos`.
+- **Dificultad de pruebas unitarias:** Para probar un eslabón se requiere instanciar un contexto mutable y verificar el estado posterior en lugar de recibir una respuesta funcional pura.
+
+#### 3. ¿Qué sucedería si dos campañas debieran sumarse o combinarse con topes en lugar de competir por el máximo?
+**Respuesta:** La lógica actual colapsa. Al delegar la resolución del beneficio a una instrucción `Math.max` incrustada dentro de cada eslabón y en `GestorPedidos`, el sistema es incapaz de soportar políticas como:
+- *Acumulación aditiva:* Sumar 10% corporativo + 12% por volumen (total 22%).
+- *Descuento encadenado sobre saldo residual:* Aplicar 10% sobre el subtotal y 12% sobre el saldo resultante.
+- *Topes máximos permitidos:* Descuentos acumulados hasta un máximo de 20%.  
+Para implementar cualquiera de estas reglas habría que agregar variables y lógica condicional compleja (*Spaghetti Code*) dentro del contexto y en múltiples eslabones, agravando la degradación del diseño.
+
+#### 4. ¿Cómo impacta esta decisión al Principio de Responsabilidad Única (SRP) y a la Mantenibilidad?
+**Respuesta:** Viola el SRP en dos dimensiones:
+- `ValidadorPedido` asume dos razones de cambio divergentes: cambios en políticas de integridad operativa (stock, solvencia) y cambios en estrategias de mercadeo.
+- `GestorPedidos` debe conocer tanto la cadena de validadores como la lógica de resolución entre el descuento de cliente y el descuento de campaña (`Math.max(porcentajeTipoCliente, contexto.getDescuentoCampana())`).
+
+---
+
+## 7. Tabla de Salida Golden Hammer (`docs/salida-golden-hammer.txt`)
+
+Se ejecutó la suite de pruebas ampliada con 8 casos de negocio (5 originales + 3 campañas promocionales):
+
+```text
+CASO                           | CONFIRMADO   | MOTIVO                                        | TOTAL       
+---------------------------------------------------------------------------------------------------------
+CAMPANA_BLACK_FRIDAY           | true         | N/A                                           | 178500.00   
+CAMPANA_CORPORATIVO_NIT        | true         | N/A                                           | 214200.00   
+CAMPANA_VOLUMEN_MAYOR_20       | true         | N/A                                           | 1309000.00  
+CLIENTE_INEXISTENTE            | false        | Cliente no registrado                         | 0.00        
+CLIENTE_MOROSO_HORA_REAL       | false        | Cliente con facturas pendientes               | 0.00        
+DESCUENTO_FRECUENTE            | true         | N/A                                           | 437920.00   
+DESCUENTO_VIP                  | true         | N/A                                           | 1213800.00  
+STOCK_INSUFICIENTE             | false        | Stock insuficiente: producto 104              | 0.00        
+```
+
+
