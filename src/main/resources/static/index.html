@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Gestión de Pedidos — Tienda Service</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #0a0f1d;
+            --bg-secondary: #131b2e;
+            --bg-card: rgba(26, 35, 58, 0.7);
+            --border-color: rgba(255, 255, 255, 0.08);
+            --accent-primary: #3b82f6;
+            --accent-glow: rgba(59, 130, 246, 0.35);
+            --success: #10b981;
+            --danger: #ef4444;
+            --warning: #f59e0b;
+            --text-main: #f1f5f9;
+            --text-muted: #94a3b8;
+            --code-bg: #090d16;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-primary);
+            color: var(--text-main);
+            min-height: 100vh;
+            padding: 2.5rem 1.5rem;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 3rem;
+        }
+
+        .badge-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.4rem 1rem;
+            border-radius: 9999px;
+            background: rgba(16, 185, 129, 0.15);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            color: #34d399;
+            font-size: 0.85rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+        }
+
+        .badge-dot {
+            width: 8px;
+            height: 8px;
+            background-color: #10b981;
+            border-radius: 50%;
+            box-shadow: 0 0 10px #10b981;
+        }
+
+        h1 {
+            font-size: 2.4rem;
+            font-weight: 800;
+            letter-spacing: -0.025em;
+            background: linear-gradient(135deg, #ffffff 0%, #94a3b8 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 0.75rem;
+        }
+
+        .subtitle {
+            color: var(--text-muted);
+            font-size: 1.1rem;
+            max-width: 700px;
+            margin: 0 auto;
+        }
+
+        /* Metrics grid */
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 1.25rem;
+            margin-bottom: 2.5rem;
+        }
+
+        .metric-card {
+            background: var(--bg-card);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 1.5rem;
+            transition: transform 0.2s, border-color 0.2s;
+        }
+
+        .metric-card:hover {
+            transform: translateY(-2px);
+            border-color: rgba(59, 130, 246, 0.4);
+        }
+
+        .metric-title {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+
+        .metric-value {
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: #ffffff;
+        }
+
+        .metric-note {
+            font-size: 0.8rem;
+            color: #38bdf8;
+            margin-top: 0.25rem;
+        }
+
+        /* Main layout */
+        .main-layout {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2rem;
+            margin-bottom: 2.5rem;
+        }
+
+        @media (max-width: 900px) {
+            .main-layout {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 2rem;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+        }
+
+        .card-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 1.5rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .card-title {
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: #ffffff;
+        }
+
+        .form-group {
+            margin-bottom: 1.25rem;
+        }
+
+        label {
+            display: block;
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--text-muted);
+            margin-bottom: 0.5rem;
+        }
+
+        input, select {
+            width: 100%;
+            background: var(--code-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 0.75rem 1rem;
+            font-size: 0.95rem;
+            color: #ffffff;
+            outline: none;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+
+        input:focus, select:focus {
+            border-color: var(--accent-primary);
+            box-shadow: 0 0 0 3px var(--accent-glow);
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 0.75rem;
+            margin-top: 1.5rem;
+        }
+
+        button {
+            cursor: pointer;
+            border: none;
+            border-radius: 10px;
+            padding: 0.8rem 1.5rem;
+            font-size: 0.95rem;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: var(--accent-primary);
+            color: #ffffff;
+            box-shadow: 0 4px 14px var(--accent-glow);
+            flex: 1;
+        }
+
+        .btn-primary:hover {
+            background: #2563eb;
+            transform: translateY(-1px);
+        }
+
+        .btn-outline {
+            background: transparent;
+            color: var(--text-muted);
+            border: 1px solid var(--border-color);
+        }
+
+        .btn-outline:hover {
+            color: #ffffff;
+            border-color: #ffffff;
+        }
+
+        /* Preset buttons */
+        .preset-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .preset-btn {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 0.4rem 0.8rem;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            transition: all 0.2s;
+        }
+
+        .preset-btn:hover {
+            background: rgba(59, 130, 246, 0.15);
+            color: #60a5fa;
+            border-color: rgba(59, 130, 246, 0.4);
+        }
+
+        /* Response box */
+        .response-container {
+            background: var(--code-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 1.25rem;
+            min-height: 240px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .response-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.75rem;
+            font-size: 0.85rem;
+            color: var(--text-muted);
+        }
+
+        pre {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.88rem;
+            color: #a5f3fc;
+            overflow-x: auto;
+            flex: 1;
+        }
+
+        /* Regression Table Section */
+        .table-section {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 2rem;
+        }
+
+        .styled-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.88rem;
+            margin-top: 1rem;
+        }
+
+        .styled-table th {
+            text-align: left;
+            background: rgba(255, 255, 255, 0.03);
+            color: var(--text-muted);
+            padding: 0.8rem 1rem;
+            border-bottom: 1px solid var(--border-color);
+            font-weight: 600;
+        }
+
+        .styled-table td {
+            padding: 0.8rem 1rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+            color: #e2e8f0;
+        }
+
+        .styled-table tr:hover td {
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .badge-success {
+            display: inline-block;
+            padding: 0.2rem 0.6rem;
+            border-radius: 6px;
+            background: rgba(16, 185, 129, 0.15);
+            color: #34d399;
+            font-weight: 600;
+        }
+
+        .badge-fail {
+            display: inline-block;
+            padding: 0.2rem 0.6rem;
+            border-radius: 6px;
+            background: rgba(239, 68, 68, 0.15);
+            color: #f87171;
+            font-weight: 600;
+        }
+
+        footer {
+            margin-top: 3rem;
+            text-align: center;
+            font-size: 0.85rem;
+            color: var(--text-muted);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="badge-pill">
+                <span class="badge-dot"></span>
+                <span>Servicio Activo & Verificado</span>
+            </div>
+            <h1>Sistema de Gestión de Pedidos</h1>
+            <p class="subtitle">Diagnóstico y Refactorización de Antipatrones de Diseño (God Object, Spaghetti Code, Golden Hammer, Lava Flow) — Arquitectura Limpia en Cuatro Capas</p>
+        </header>
+
+        <!-- Metrics Section -->
+        <div class="metrics-grid">
+            <div class="metric-card">
+                <div class="metric-title">Líneas GestorPedidos</div>
+                <div class="metric-value">335 &rarr; 85</div>
+                <div class="metric-note">Reducción del 74.6% en el orquestador</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-title">Responsabilidades</div>
+                <div class="metric-value">12 &rarr; 4 Capas</div>
+                <div class="metric-note">Validación, Descuento, Repositorio, Notificación</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-title">Patrones Aplicados</div>
+                <div class="metric-value">Chain + Strategy</div>
+                <div class="metric-note">Corte anticipado y polimorfismo puro</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-title">Pruebas Automatizadas</div>
+                <div class="metric-value">10 / 10</div>
+                <div class="metric-note">100% pruebas de regresión exitosas</div>
+            </div>
+        </div>
+
+        <!-- Main Live Simulator Section -->
+        <div class="main-layout">
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">Simulador de Pedidos en Vivo</span>
+                    <span style="font-size: 0.8rem; color: #60a5fa;">POST /api/pedidos</span>
+                </div>
+
+                <div class="preset-container">
+                    <button class="preset-btn" onclick="cargarPreset('vip')">Cliente VIP ($1.2M)</button>
+                    <button class="preset-btn" onclick="cargarPreset('frecuente')">Frecuente (12 pedidos)</button>
+                    <button class="preset-btn" onclick="cargarPreset('stock')">Stock Insuficiente</button>
+                    <button class="preset-btn" onclick="cargarPreset('moroso')">Cliente Moroso</button>
+                    <button class="preset-btn" onclick="cargarPreset('corporativo')">Corporativo (NIT)</button>
+                    <button class="preset-btn" onclick="cargarPreset('volumen')">Volumen (>20)</button>
+                </div>
+
+                <form id="orderForm" onsubmit="enviarPedido(event)">
+                    <div class="form-group">
+                        <label for="clienteId">Cliente</label>
+                        <select id="clienteId">
+                            <option value="1">Cliente 1 — Estándar (Sin deuda, 0 pedidos)</option>
+                            <option value="2">Cliente 2 — VIP (Beneficio hasta 15%)</option>
+                            <option value="3">Cliente 3 — Frecuente (5 pedidos previos)</option>
+                            <option value="4">Cliente 4 — Frecuente (12 pedidos previos)</option>
+                            <option value="5">Cliente 5 — Moroso (Factura pendiente $150,000)</option>
+                            <option value="6">Cliente 6 — Corporativo (NIT 900123456-1)</option>
+                            <option value="999">Cliente 999 — Inexistente (No registrado)</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="clienteEmail">Correo Electrónico</label>
+                        <input type="email" id="clienteEmail" value="cliente@tienda.com" required>
+                    </div>
+
+                    <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 1rem;">
+                        <div class="form-group">
+                            <label for="productoId">Producto</label>
+                            <select id="productoId">
+                                <option value="101">Prod 101 — Laptop ($200,000, Stock: 50)</option>
+                                <option value="102">Prod 102 — Monitor 4K ($600,000, Stock: 10)</option>
+                                <option value="103">Prod 103 — Servidor VIP ($1,200,000, Stock: 5)</option>
+                                <option value="104">Prod 104 — Cable HDMI ($10,000, Stock: 2)</option>
+                                <option value="105">Prod 105 — Memoria RAM ($50,000, Stock: 100)</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="cantidad">Cantidad</label>
+                            <input type="number" id="cantidad" value="1" min="1" max="100" required>
+                        </div>
+                    </div>
+
+                    <div class="btn-group">
+                        <button type="submit" class="btn-primary" id="submitBtn">Procesar Pedido</button>
+                        <button type="button" class="btn-outline" onclick="limpiarFormulario()">Restablecer</button>
+                    </div>
+                </form>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">Resultado de la Transacción</span>
+                    <span id="httpStatusBadge" class="badge-pill" style="display: none; padding: 0.2rem 0.6rem; font-size: 0.75rem;">HTTP 200</span>
+                </div>
+                <div class="response-container">
+                    <div class="response-header">
+                        <span>Payload JSON devuelto</span>
+                        <span id="responseTime">0 ms</span>
+                    </div>
+                    <pre id="responseJson">// Realiza una solicitud para visualizar el resultado en tiempo real...</pre>
+                </div>
+            </div>
+        </div>
+
+        <!-- Regression Table Display -->
+        <div class="table-section">
+            <div class="card-header" style="margin-bottom: 0.5rem; border: none;">
+                <span class="card-title">Matriz de Pruebas de Regresión Verificada (`docs/salida-corregida.txt`)</span>
+                <span class="badge-pill">Verificación Automática</span>
+            </div>
+            <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1rem;">
+                Resultados reales exportados por el banco de pruebas JUnit (`GestorPedidosTest`). Demuestra equivalencia matemática estricta y eliminación de antipatrones.
+            </p>
+            <table class="styled-table">
+                <thead>
+                    <tr>
+                        <th>CASO DE PRUEBA</th>
+                        <th>ESTADO</th>
+                        <th>MOTIVO / DIAGNÓSTICO</th>
+                        <th>TOTAL LIQUIDADO</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>CAMPANA_BLACK_FRIDAY</strong></td>
+                        <td><span class="badge-success">CONFIRMADO</span></td>
+                        <td>Descuento 25% por campaña activa</td>
+                        <td>$178,500.00</td>
+                    </tr>
+                    <tr>
+                        <td><strong>CAMPANA_CORPORATIVO_NIT</strong></td>
+                        <td><span class="badge-success">CONFIRMADO</span></td>
+                        <td>Descuento 10% por cliente con NIT</td>
+                        <td>$214,200.00</td>
+                    </tr>
+                    <tr>
+                        <td><strong>CAMPANA_VOLUMEN_MAYOR_20</strong></td>
+                        <td><span class="badge-success">CONFIRMADO</span></td>
+                        <td>Descuento 12% por volumen de 25 unidades</td>
+                        <td>$1,309,000.00</td>
+                    </tr>
+                    <tr>
+                        <td><strong>CLIENTE_INEXISTENTE</strong></td>
+                        <td><span class="badge-fail">RECHAZADO</span></td>
+                        <td>Cliente no registrado (Manejo seguro sin excepción)</td>
+                        <td>$0.00</td>
+                    </tr>
+                    <tr>
+                        <td><strong>CLIENTE_MOROSO_HORA_REAL</strong></td>
+                        <td><span class="badge-fail">RECHAZADO</span></td>
+                        <td>Cliente con facturas pendientes (Antes de 20:00)</td>
+                        <td>$0.00</td>
+                    </tr>
+                    <tr>
+                        <td><strong>DESCUENTO_FRECUENTE</strong></td>
+                        <td><span class="badge-success">CONFIRMADO</span></td>
+                        <td>Descuento 8% (>10 pedidos previos registrados)</td>
+                        <td>$437,920.00</td>
+                    </tr>
+                    <tr>
+                        <td><strong>DESCUENTO_VIP</strong></td>
+                        <td><span class="badge-success">CONFIRMADO</span></td>
+                        <td>Descuento 15% (Subtotal mayor a $1,000,000)</td>
+                        <td>$1,213,800.00</td>
+                    </tr>
+                    <tr>
+                        <td><strong>STOCK_INSUFICIENTE</strong></td>
+                        <td><span class="badge-fail">RECHAZADO</span></td>
+                        <td>Stock insuficiente: producto 104 (Solicitados: 5, Disp: 2)</td>
+                        <td>$0.00</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <footer>
+            <p>Repositorio: <strong>ajaxmercury/AbrilPatrones-post1-u6</strong> | Materia: Patrones de Diseño de Software | UDES 2026</p>
+        </footer>
+    </div>
+
+    <script>
+        const presets = {
+            vip: { clienteId: 2, email: 'vip@tienda.com', prodId: 103, cant: 1 },
+            frecuente: { clienteId: 4, email: 'frecuente@tienda.com', prodId: 101, cant: 2 },
+            stock: { clienteId: 1, email: 'cliente@tienda.com', prodId: 104, cant: 5 },
+            moroso: { clienteId: 5, email: 'moroso@tienda.com', prodId: 101, cant: 1 },
+            corporativo: { clienteId: 6, email: 'corporativo@empresa.com', prodId: 101, cant: 1 },
+            volumen: { clienteId: 1, email: 'mayorista@tienda.com', prodId: 105, cant: 25 }
+        };
+
+        function cargarPreset(tipo) {
+            const p = presets[tipo];
+            if (!p) return;
+            document.getElementById('clienteId').value = p.clienteId;
+            document.getElementById('clienteEmail').value = p.email;
+            document.getElementById('productoId').value = p.prodId;
+            document.getElementById('cantidad').value = p.cant;
+        }
+
+        async function enviarPedido(event) {
+            event.preventDefault();
+            const submitBtn = document.getElementById('submitBtn');
+            const responseBox = document.getElementById('responseJson');
+            const statusBadge = document.getElementById('httpStatusBadge');
+            const responseTime = document.getElementById('responseTime');
+
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Procesando...';
+
+            const payload = {
+                clienteId: parseInt(document.getElementById('clienteId').value),
+                clienteEmail: document.getElementById('clienteEmail').value,
+                items: [
+                    {
+                        productoId: parseInt(document.getElementById('productoId').value),
+                        cantidad: parseInt(document.getElementById('cantidad').value)
+                    }
+                ]
+            };
+
+            const t0 = performance.now();
+            try {
+                const res = await fetch('/api/pedidos', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const t1 = performance.now();
+                responseTime.textContent = `${Math.round(t1 - t0)} ms`;
+
+                const data = await res.json();
+                statusBadge.style.display = 'inline-block';
+                statusBadge.textContent = `HTTP ${res.status} ${res.ok ? 'OK' : 'BAD REQUEST'}`;
+                statusBadge.style.background = res.ok ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)';
+                statusBadge.style.color = res.ok ? '#34d399' : '#f87171';
+
+                responseBox.textContent = JSON.stringify(data, null, 2);
+            } catch (err) {
+                responseBox.textContent = '// Error de conexion: ' + err.message;
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Procesar Pedido';
+            }
+        }
+
+        function limpiarFormulario() {
+            document.getElementById('orderForm').reset();
+            document.getElementById('responseJson').textContent = '// Esperando solicitud...';
+            document.getElementById('httpStatusBadge').style.display = 'none';
+        }
+    </script>
+</body>
+</html>

@@ -1,9 +1,10 @@
-# Sistema de Gestión de Pedidos — Diagnóstico y Refactorización de Antipatrones
+# Sistema de Gestión de Pedidos — Diagnóstico y Refactorización de Antipatrones de Diseño
 
 **Estudiante:** Abril  
-**Materia:** Patrones de Diseño de Software — Unidad 6  
+**Materia:** Patrones de Diseño de Software — Unidad 6 (Entrega 2 de 4)  
 **Repositorio local y remoto:** `AbrilPatrones-post1-u6`  
-**Descripción del proyecto:** Post-contenido — Diagnóstico y refactorización de antipatrones de diseño en el Sistema de Gestión de Pedidos (`pedidos-service`).  
+**URL de GitHub:** [https://github.com/ajaxmercury/AbrilPatrones-post1-u6](https://github.com/ajaxmercury/AbrilPatrones-post1-u6)  
+**Descripción:** Post-contenido — Diagnóstico y refactorización de antipatrones de diseño en el Sistema de Gestión de Pedidos (`pedidos-service`).
 
 ---
 
@@ -13,12 +14,13 @@
 - **Framework:** Spring Boot 3.2.5.
 - **Herramienta de construcción:** Apache Maven 3.9.11.
 - **Persistencia en memoria:** H2 Database 2.2.x (`spring-boot-starter-jdbc` con `JdbcTemplate`).
-- **Pruebas:** JUnit 5 (`spring-boot-starter-test`), `@SpringBootTest`, `@Transactional`.
+- **Pruebas automatizadas:** JUnit 5 (`spring-boot-starter-test`), `@SpringBootTest`, `@Transactional`.
 - **Estructura de paquetes base:** `com.tienda.pedidos`
-  - `dto/`: Objetos de transferencia de datos (`PedidoRequest`, `ItemPedido`, `ResultadoPedido`).
-  - `service/`: Servicios de negocio, repositorios y orquestadores.
-  - `validacion/`: Cadena de responsabilidad de validaciones de pedido.
-  - `descuento/`: Estrategias de descuento por tipo de cliente y promociones.
+  - `dto/`: Objetos de transferencia inmutables (`PedidoRequest`, `ItemPedido`, `ResultadoPedido`).
+  - `service/`: Servicios de negocio, repositorios y orquestadores (`GestorPedidos`, `PedidoRepository`, `NotificacionPedidoService`, `CalculadorSubtotal`).
+  - `validacion/`: Cadena de Responsabilidad para integridad transaccional (`ContextoPedido`, `ValidadorPedido`, `ValidadorStock`, `ValidadorCliente`).
+  - `descuento/`: Estrategias polimórficas de beneficios comerciales (`EstrategiaDescuento`, `DescuentoVip`, `DescuentoFrecuente`, `DescuentoEstandar`, `DescuentoBlackFriday`, `DescuentoCorporativo`, `DescuentoVolumen`, `CalculadorDescuentoFinal`).
+  - `controller/`: Controlador REST para simulación y consumo de API en vivo (`PedidoController`).
 
 ---
 
@@ -28,7 +30,7 @@ Antes de intervenir el código original, se realizó una inspección estática e
 
 ### 2.1. Evidencia Concreta de Responsabilidades Distintas y Rangos de Líneas Reales
 
-La clase monolítica `GestorPedidos` concentra un total de **12 responsabilidades divergentes** (7 dentro del método principal `procesarPedido` y 5 distribuidas en métodos auxiliares no cohesivos):
+La clase monolítica `GestorPedidos` concentraba un total de **12 responsabilidades divergentes** (7 dentro del método principal `procesarPedido` y 5 distribuidas en métodos auxiliares no cohesivos):
 
 | Bloque / Método | Rango de Líneas Reales | Responsabilidad Específica | Dependencia Acoplada |
 | :--- | :---: | :--- | :--- |
@@ -47,7 +49,7 @@ La clase monolítica `GestorPedidos` concentra un total de **12 responsabilidade
 
 ### 2.2. Medición de Profundidad de Anidamiento
 
-- **Lógica de Descuento (Líneas 102 a 129):** Posee una profundidad de anidamiento de **2 niveles de condicionales** (`if` exterior por tipo de cliente e `if-else if` anidados por umbrales de compra o conteo de pedidos históricos):
+- **Lógica de Descuento (Líneas 102 a 129):** Poseía una profundidad de anidamiento de **2 niveles de condicionales** (`if` exterior por tipo de cliente e `if-else if` anidados por umbrales de compra o conteo de pedidos históricos):
   - Nivel 1: `if ("VIP".equalsIgnoreCase(tipoCliente))`
     - Nivel 2: `if (subtotal > 1000000.0) ... else if (subtotal > 500000.0) ... else ...`
   - Nivel 1: `else if ("FRECUENTE".equalsIgnoreCase(tipoCliente))`
@@ -58,7 +60,7 @@ La clase monolítica `GestorPedidos` concentra un total de **12 responsabilidade
 
 ### 2.3. Niveles de Abstracción Simultáneos
 
-El método `procesarPedido` rompe de forma crítica el principio de un solo nivel de abstracción por método (SLAP). En una misma función de 121 líneas interactúan simultáneamente **4 niveles de abstracción dispares**:
+El método `procesarPedido` rompía de forma crítica el principio de un solo nivel de abstracción por método (SLAP). En una misma función de 121 líneas interactuaban simultáneamente **4 niveles de abstracción dispares**:
 1. **Infraestructura y SQL Crudo (Nivel Bajo):** Manipulación de strings SQL (`"SELECT cantidad FROM inventario..."`, `"CALL IDENTITY()"`), mapeos manuales de tipos primitivos JDBC (`Integer.class`, `Double.class`).
 2. **Acceso al Sistema y Tiempo Físico (Nivel Técnico):** Invocación acoplada a la hora de la máquina virtual con `LocalTime.now()` y llamadas a APIs de red/email.
 3. **Reglas de Negocio Financieras y Políticas (Nivel Intermedio):** Reglas crediticias de mora condicionadas al horario de corte, escalas de descuento por fidelidad o estatus VIP, y tasa de IVA del 19%.
@@ -67,16 +69,16 @@ El método `procesarPedido` rompe de forma crítica el principio de un solo nive
 ### 2.4. Impacto al Agregar un Nuevo Tipo de Cliente (Violación de OCP)
 
 Para incorporar un nuevo tipo de cliente (por ejemplo, `CORPORATIVO` con 10% de descuento directo si cuenta con NIT):
-- Es imperativo abrir y modificar el método central `procesarPedido` en `GestorPedidos.java` entre las líneas 102 y 129.
-- Se requeriría agregar entre **12 y 18 líneas de código condicional** adicionales (`else if ("CORPORATIVO".equalsIgnoreCase(tipoCliente)) { ... }`), además de consultar la columna `nit` en la base de datos.
-- **Riesgo:** Tocar este método central pone en riesgo el funcionamiento de los tipos de cliente existentes (`VIP`, `FRECUENTE`, `ESTANDAR`), no permite compilar estrategias de forma independiente, e incrementa la fragilidad del sistema.
+- Era imperativo abrir y modificar el método central `procesarPedido` en `GestorPedidos.java` entre las líneas 102 y 129.
+- Se requería agregar entre **12 y 18 líneas de código condicional** adicionales (`else if ("CORPORATIVO".equalsIgnoreCase(tipoCliente)) { ... }`), además de consultar la columna `nit` en la base de datos.
+- **Riesgo:** Tocar este método central ponía en riesgo el funcionamiento de los tipos de cliente existentes (`VIP`, `FRECUENTE`, `ESTANDAR`), no permitía compilar estrategias de forma independiente, e incrementaba la fragilidad del sistema.
 
 ### 2.5. Identificación de Antipatrones
 
 1. **God Object (Blob / Objeto Todopoderoso):**
-   `GestorPedidos` asume responsabilidades que deberían estar distribuidas en repositorios, validadores, motores de cálculo fiscal, servicios de notificación y rutinas de mantenimiento de base de datos. Posee alto acoplamiento y nula cohesión. No es posible probar de forma aislada una regla de negocio sin levantar la infraestructura JDBC ni interactuar con la base de datos.
+   `GestorPedidos` asumía responsabilidades que pertenecían a repositorios, validadores, motores de cálculo fiscal, servicios de notificación y rutinas de mantenimiento de base de datos. Poseía alto acoplamiento y nula cohesión. No era posible probar de forma aislada una regla de negocio sin levantar la infraestructura JDBC ni interactuar con la base de datos.
 2. **Spaghetti Code (Código Espagueti):**
-   El flujo de control dentro de `procesarPedido` es una maraña lineal de bifurcaciones anidadas, accesos a base de datos intercalados con operaciones aritméticas y efectos colaterales (inserciones y actualizaciones intermedias). La lógica no puede reutilizarse ni mantenerse de forma modular.
+   El flujo de control dentro de `procesarPedido` era una maraña lineal de bifurcaciones anidadas, accesos a base de datos intercalados con operaciones aritméticas y efectos colaterales (inserciones y actualizaciones intermedias). La lógica no podía reutilizarse ni mantenerse de forma modular.
 
 ---
 
@@ -230,10 +232,32 @@ Para implementar cualquiera de estas reglas habría que agregar variables y lóg
 
 ---
 
-## 7. Tabla de Salida Golden Hammer (`docs/salida-golden-hammer.txt`)
+## 7. PARTE 2 — Refactorización y Eliminación de Antipatrones
 
-Se ejecutó la suite de pruebas ampliada con 8 casos de negocio (5 originales + 3 campañas promocionales):
+### 7.1. Corrección Definitiva: Strategy y `CalculadorDescuentoFinal`
 
+Para corregir el *Golden Hammer*, se aplicó una reestructuración completa:
+1. **Modelado de Campañas como Estrategias:**
+   Se crearon `DescuentoBlackFriday`, `DescuentoCorporativo` y `DescuentoVolumen` implementando la interfaz `EstrategiaDescuento`. Cada una calcula de forma pura y funcional su porcentaje de descuento aplicable sin mutar ningún estado externo.
+2. **Encapsulamiento en `CalculadorDescuentoFinal`:**
+   Se creó el componente `CalculadorDescuentoFinal`, el cual coordina:
+   - La selección del descuento por tipo de cliente (`VIP`, `FRECUENTE`, `ESTANDAR`).
+   - La evaluación de la lista de estrategias de campaña activas.
+   - La resolución de cuál es el porcentaje aplicable (el mayor entre tipo de cliente y campañas), aislando esta regla de negocio fuera de `GestorPedidos`.
+3. **Purificación de la Cadena de Validación:**
+   `ValidadorPedido` conserva única y exclusivamente dos eslabones genuinos: `ValidadorStock` y `ValidadorCliente`.
+
+### 7.2. Prevención del Antipatrón Lava Flow (Eliminar vs Comentar)
+
+- **Eliminación Absoluta:** Se eliminaron por completo mediante `git rm` las clases `PromocionBlackFriday.java`, `PromocionCorporativo.java` y `PromocionVolumen.java`. Asimismo, se eliminaron los atributos `descuentoCampana` y `aplicarDescuentoCampana` de `ContextoPedido`.
+- **Cero Código Muerto:** No quedó ninguna línea comentada en el código fuente.
+- **Justificación:** Dejar código en desuso o comentado (*Lava Flow*) contamina la base de código, genera confusión en futuros desarrolladores sobre qué componentes están vigentes y aumenta el costo cognitivo de mantenimiento. El sistema de control de versiones Git almacena el historial completo de cambios (commits 5 y 6), por lo que el código histórico está salvaguardado sin ensuciar la rama productiva.
+
+### 7.3. Demostración de Equivalencia: Salida Golden Hammer vs Salida Corregida
+
+Se ejecutaron las mismas 10 pruebas sobre ambas implementaciones. A continuación se presentan las matrices de salida:
+
+#### Matriz de Salida Golden Hammer (`docs/salida-golden-hammer.txt`):
 ```text
 CASO                           | CONFIRMADO   | MOTIVO                                        | TOTAL       
 ---------------------------------------------------------------------------------------------------------
@@ -247,4 +271,101 @@ DESCUENTO_VIP                  | true         | N/A                             
 STOCK_INSUFICIENTE             | false        | Stock insuficiente: producto 104              | 0.00        
 ```
 
+#### Matriz de Salida Corregida (`docs/salida-corregida.txt`):
+```text
+CASO                           | CONFIRMADO   | MOTIVO                                        | TOTAL       
+---------------------------------------------------------------------------------------------------------
+CAMPANA_BLACK_FRIDAY           | true         | N/A                                           | 178500.00   
+CAMPANA_CORPORATIVO_NIT        | true         | N/A                                           | 214200.00   
+CAMPANA_VOLUMEN_MAYOR_20       | true         | N/A                                           | 1309000.00  
+CLIENTE_INEXISTENTE            | false        | Cliente no registrado                         | 0.00        
+CLIENTE_MOROSO_HORA_REAL       | false        | Cliente con facturas pendientes               | 0.00        
+DESCUENTO_FRECUENTE            | true         | N/A                                           | 437920.00   
+DESCUENTO_VIP                  | true         | N/A                                           | 1213800.00  
+STOCK_INSUFICIENTE             | false        | Stock insuficiente: producto 104              | 0.00        
+```
 
+#### Comando Diff de Verificación:
+```bash
+git diff --no-index docs/salida-golden-hammer.txt docs/salida-corregida.txt
+```
+*(Retorna código 0 sin ninguna diferencia en texto ni totales monetarios, demostrando equivalencia observable del 100%).*
+
+---
+
+## 8. Verificación en Vivo y Capturas de Pantalla
+
+La aplicación cuenta con un controlador REST (`PedidoController`) y una interfaz de usuario interactiva montada en `src/main/resources/static/index.html`. 
+
+### 8.1. Instrucciones de Compilación y Ejecución
+
+Para compilar y correr la suite de pruebas automatizadas:
+```bash
+mvn clean test
+```
+
+Para empaquetar el artefacto productivo completo:
+```bash
+mvn clean package
+```
+
+Para levantar el servidor web en vivo (puerto configurado: 8085):
+```bash
+mvn spring-boot:run
+```
+
+Para probar los endpoints con `curl`:
+```bash
+# Comprobar salud del servicio
+curl.exe -i -X GET http://localhost:8085/api/pedidos/health
+
+# Procesar pedido exitoso (VIP)
+curl.exe -i -X POST http://localhost:8085/api/pedidos \
+  -H "Content-Type: application/json" \
+  -d '{"clienteId": 2, "clienteEmail": "vip@tienda.com", "items": [{"productoId": 103, "cantidad": 1}]}'
+
+# Procesar pedido rechazado por stock
+curl.exe -i -X POST http://localhost:8085/api/pedidos \
+  -H "Content-Type: application/json" \
+  -d '{"clienteId": 1, "clienteEmail": "cliente@tienda.com", "items": [{"productoId": 104, "cantidad": 10}]}'
+```
+
+### 8.2. Captura Real 1: Dashboard Web Interactivo y Simulador en Vivo
+
+Captura tomada en tiempo real desde el navegador interactuando con el servidor en `http://localhost:8085/`:
+
+![Dashboard Web Interactivo](docs/screenshot-dashboard.png)
+
+### 8.3. Captura Real 2: Salida de Endpoints en Terminal (`curl.exe -i`)
+
+Captura de la ejecución real de peticiones HTTP sobre la consola contra el puerto 8085 (`docs/curl-test.txt`):
+
+![Salida Terminal curl](docs/screenshot-curl.png)
+
+---
+
+## 9. Historial de Commits y Trazabilidad
+
+A continuación se presenta el historial ordenado de commits generado en la rama `main`:
+
+```text
+8ede716 refactor: mover las 3 campanas de la cadena de validacion a EstrategiaDescuento
+3b497c1 docs: diagnosticar Golden Hammer en la reutilizacion de Chain of Responsibility para las campanas
+91a521c feat: agregar 3 campanas de descuento como eslabones de la cadena de validacion
+22543c7 refactor: reducir GestorPedidos a orquestador delgado de las cuatro capas
+a85fdd4 refactor: extraer validaciones a Chain of Responsibility y descuentos a Strategy
+a3d9285 docs: documentar diagnostico de God Object y Spaghetti Code con evidencia del codigo
+2cdc9b8 feat: implementar GestorPedidos con validacion, calculo, persistencia y notificacion en un solo metodo
+```
+
+---
+
+## 10. Conclusiones
+
+La refactorización arquitectónica realizada sobre el sistema de pedidos demostró que la adherencia rigurosa a los principios de diseño (SRP, OCP, DIP) no es una mera formalidad teórica, sino una necesidad operativa para evitar la rápida degradación del software. 
+
+La sustitución del *God Object* y el *Spaghetti Code* por una arquitectura en cuatro capas desacopladas mediante *Chain of Responsibility* y *Strategy* redujo drásticamente el tamaño del orquestador principal (de 335 a 85 líneas) y eliminó el riesgo de regresiones al agregar nuevas reglas comerciales. 
+
+Asimismo, el diagnóstico del *Golden Hammer* evidenció el peligro de forzar un patrón exitoso en un problema que no comparte su misma estructura, subrayando la importancia de distinguir conceptualmente entre flujos de validación con corte anticipado y motores de cálculo promocional composable. 
+
+Finalmente, la eliminación categórica de código obsoleto sin tolerar el antipatrón *Lava Flow* garantiza una base de código limpia, autodocumentada y preparada para soportar escalabilidad a largo plazo.

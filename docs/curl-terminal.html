@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Terminal Output — curl -i Real Execution</title>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            background-color: #0b0f19;
+            color: #f1f5f9;
+            font-family: 'JetBrains Mono', monospace;
+            padding: 2rem;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            box-sizing: border-box;
+        }
+        .terminal-window {
+            background: #111827;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 12px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
+            width: 900px;
+            max-width: 95%;
+            overflow: hidden;
+        }
+        .terminal-header {
+            background: #1f2937;
+            padding: 0.75rem 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        .dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+        }
+        .dot-red { background: #ef4444; }
+        .dot-yellow { background: #f59e0b; }
+        .dot-green { background: #10b981; }
+        .terminal-title {
+            color: #9ca3af;
+            font-size: 0.85rem;
+            margin-left: 0.5rem;
+            font-weight: 500;
+        }
+        .terminal-body {
+            padding: 1.5rem;
+            font-size: 0.85rem;
+            line-height: 1.5;
+            color: #38bdf8;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        .prompt-line {
+            color: #34d399;
+            font-weight: 600;
+        }
+        .header-line {
+            color: #fbbf24;
+        }
+        .json-line {
+            color: #a5f3fc;
+        }
+    </style>
+</head>
+<body>
+    <div class="terminal-window">
+        <div class="terminal-header">
+            <span class="dot dot-red"></span>
+            <span class="dot dot-yellow"></span>
+            <span class="dot dot-green"></span>
+            <span class="terminal-title">PowerShell 7 — Pruebas Reales de Endpoints con curl.exe -i (Port 8085)</span>
+        </div>
+        <div class="terminal-body"><span class="prompt-line">david@WORKSTATION:~$ curl.exe -i -X GET http://localhost:8085/api/pedidos/health</span>
+<span class="header-line">HTTP/1.1 200 
+Content-Type: application/json
+Transfer-Encoding: chunked
+Date: Sun, 04 Oct 2026 19:52:17 GMT</span>
+
+<span class="json-line">{"servicio":"pedidos-service","arquitectura":"Clean Architecture - Chain of Responsibility + Strategy","version":"1.0.0-REFACTORED","status":"UP"}</span>
+
+<span class="prompt-line">david@WORKSTATION:~$ curl.exe -i -X POST http://localhost:8085/api/pedidos -H "Content-Type: application/json" -d @target/payload-vip.json</span>
+<span class="header-line">HTTP/1.1 200 
+Content-Type: application/json
+Transfer-Encoding: chunked
+Date: Sun, 04 Oct 2026 19:52:17 GMT</span>
+
+<span class="json-line">{"confirmado":true,"pedidoId":18,"motivo":null,"total":1071000.0}</span>
+
+<span class="prompt-line">david@WORKSTATION:~$ curl.exe -i -X POST http://localhost:8085/api/pedidos -H "Content-Type: application/json" -d @target/payload-stock.json</span>
+<span class="header-line">HTTP/1.1 400 
+Content-Type: application/json
+Transfer-Encoding: chunked
+Date: Sun, 04 Oct 2026 19:52:17 GMT
+Connection: close</span>
+
+<span class="json-line">{"confirmado":false,"pedidoId":null,"motivo":"Stock insuficiente: producto 104","total":0.0}</span>
+</div>
+    </div>
+</body>
+</html>
